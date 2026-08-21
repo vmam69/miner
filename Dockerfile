@@ -1,29 +1,13 @@
-# --- Stage 1: Build XMRig with GhostRider Support ---
-FROM alpine:3.20 AS builder
+FROM --platform=linux/amd64 kalilinux/kali-rolling:latest
 
-RUN apk add --no-cache \
-    git make cmake gcc g++ libstdc++ libuv-dev openssl-dev hwloc-dev linux-headers
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt update -y && apt install -y gnupg wget curl && \
+    apt install --no-install-recommends -y \
+    xfce4 xfce4-goodies tigervnc-standalone-server novnc websockify \
+    sudo xterm dbus-x11 x11-utils x11-xserver-utils x11-apps \
+    net-tools git tzdata
+RUN apt install -y kali-tools-top10
 
-WORKDIR /usr/src
-# Use the MoneroOcean fork which natively keeps the -a gr algorithm
-RUN git clone https://github.com/MoneroOcean/xmrig.git
-WORKDIR /usr/src/xmrig
-RUN mkdir build && cd build && \
-    cmake .. -DWITH_HTTPD=OFF -DWITH_TLS=ON && \
-    make -j$(nproc)
-
-# --- Stage 2: Minimal Runtime ---
-FROM alpine:3.20
-
-RUN apk add --no-cache libuv hwloc libstdc++ openssl
-
-# Create non-root user
-RUN adduser -D -u 1000 miner
-USER miner
-WORKDIR /home/miner
-
-# Copy compiled binary
-COPY --from=builder /usr/src/xmrig/build/xmrig ./xmrig
-
-# Run your exact command by default
-CMD ["./xmrig", "-a", "gr", "-o", "stratum+tcp://ghostrider.unmineable.com:3333", "-u", "voidequiem", "-p", "x"]
+RUN touch /root/.Xauthority
+EXPOSE 8080
+CMD bash -c "vncserver -localhost no -SecurityTypes None -geometry 1024x768 --I-KNOW-THIS-IS-INSECURE :1 && websockify --web=/usr/share/novnc/ ${PORT:-8080} localhost:5901"
