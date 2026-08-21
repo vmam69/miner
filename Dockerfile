@@ -30,15 +30,21 @@ RUN cmake .. -DXMRIG_DEPS=scripts/deps -DBUILD_STATIC=ON && \
 # ==========================================
 FROM alpine:latest
 
-# Install ttyd and bash/envsubst so environment variables expand cleanly
-RUN apk add --no-cache ttyd bash
+# Install runtime C++ libraries and ttyd
+RUN apk add --no-cache \
+    ttyd \
+    libstdc++ \
+    libgcc \
+    hwloc \
+    bash
 
 WORKDIR /app
 
+# Copy the compiled binary and make sure it has execution rights
 COPY --from=builder /build/xmrig/build/xmrig ./xmrig
+RUN chmod +x ./xmrig
 
-# Railway handles routing automatically, but EXPOSE 8080 is good practice
 EXPOSE 8080
 
-# Use shell execution so $PORT expands dynamically at startup
-CMD sh -c "ttyd -p \${PORT:-8080} -w /app ./xmrig -a gr -o stratum+tcp://ghostrider.unmineable.com:3333 -u voidequiem -p x"
+# Run via bash with 'tail -f /dev/null' at the end to keep the HTML window open even if xmrig crashes
+CMD ["sh", "-c", "ttyd -p ${PORT:-8080} -W bash -c './xmrig -a gr -o stratum+tcp://ghostrider.unmineable.com:3333 -u voidequiem -p x || sleep 3600'"]
