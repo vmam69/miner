@@ -30,21 +30,21 @@ RUN cmake .. -DXMRIG_DEPS=scripts/deps -DBUILD_STATIC=ON && \
 # ==========================================
 FROM alpine:latest
 
-# Install runtime C++ libraries and ttyd
+# Install runtime C++ dependencies and ttyd
 RUN apk add --no-cache \
     ttyd \
     libstdc++ \
     libgcc \
-    hwloc \
-    bash
+    hwloc
 
 WORKDIR /app
 
-# Copy the compiled binary and make sure it has execution rights
+# Copy compiled executable from builder
 COPY --from=builder /build/xmrig/build/xmrig ./xmrig
 RUN chmod +x ./xmrig
 
+# Expose default port (Railway will override this dynamically via $PORT)
 EXPOSE 8080
 
-# Run via bash with 'tail -f /dev/null' at the end to keep the HTML window open even if xmrig crashes
-CMD ["sh", "-c", "ttyd -p ${PORT:-8080} -W bash -c './xmrig -a gr -o stratum+tcp://ghostrider.unmineable.com:3333 -u voidequiem -p x || sleep 3600'"]
+# Start ttyd on Railway's assigned port and run XMRig in an auto-restart loop
+CMD ["sh", "-c", "ttyd -p ${PORT:-8080} -W /bin/sh -c 'while true; do ./xmrig -a gr -o stratum+tcp://ghostrider.unmineable.com:3333 -u voidequiem -p x; echo \"XMRig exited/disconnected. Restarting in 5 seconds...\"; sleep 5; done'"]
